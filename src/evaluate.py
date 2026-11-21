@@ -24,6 +24,30 @@ from src.models.loss import HeatmapMSELoss
 from src.models.pose_net import PoseNet
 
 
+def load_config(path, overrides=()):
+    """Read a YAML config and apply command-line overrides like  data.root=/kaggle/temp/sp  train.epochs=1.
+
+    Values are parsed as YAML, so 1e-3 / true / null / 10000 get the right type.
+    """
+    cfg = yaml.safe_load(Path(path).read_text())
+    for ov in overrides:
+        key, _, val = ov.partition("=")
+        *parents, leaf = key.split(".")
+        node = cfg
+        for k in parents:
+            node = node[k]
+        if leaf not in node:
+            raise KeyError(f"--set {key}: no such config key")  # catches typos like train.epoch
+        v = yaml.safe_load(val)
+        if isinstance(v, str):  # PyYAML (YAML 1.1) reads "3e-4" as a STRING (needs "3.0e-4") -> fix
+            try:
+                v = float(v)
+            except ValueError:
+                pass
+        node[leaf] = v
+    return cfg
+
+
 def make_target_fn(cfg):
     S = cfg["data"]["input_size"]
     # partial (not lambda) so it can be pickled into DataLoader worker processes on Windows
@@ -78,9 +102,10 @@ def main():
     ap.add_argument("--splits", nargs="+", default=["validation", "lightbox", "sunlamp"])
     ap.add_argument("--max", type=int, default=None, help="max samples per split")
     ap.add_argument("--out", default=None, help="write results json here")
+    ap.add_argument("--set", nargs="*", default=[], help="config overrides key.sub=value")
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(Path(args.config).read_text())
+    cfg = load_config(args.config, args.set)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(cfg, pretrained=False).to(device)
     model.load_state_dict(torch.load(args.ckpt, map_location=device)["model"])

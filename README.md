@@ -44,6 +44,7 @@ src/models/         PoseNet (ResNet + deconv head), heatmap loss
 src/metrics/        SPEED+ / SPEC2021 metrics
 src/train.py        training loop      src/evaluate.py   per-domain evaluation
 scripts/            download subset, resize dataset, overlays, pipeline checks
+notebooks/          Kaggle notebooks: A = build resized dataset, B = train + evaluate
 tests/              unit tests (geometry, heatmaps, model, PnP, loss, metrics, resize)
 ```
 

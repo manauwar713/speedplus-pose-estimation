@@ -80,54 +80,80 @@ def _init(src):
 
 
 def _resize_one(job):
-    rel, dst, s, quality = job
-    dst = Path(dst)
-    if dst.exists():
-        return 0  # resumable
-    buf = np.frombuffer(_SRC.read(rel), np.uint8)
-    img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+    """Worker: read one image from the source, resize, JPEG-encode. Returns (rel_path, jpeg_bytes)."""
+    rel, s, quality = job
+    img = cv2.imdecode(np.frombuffer(_SRC.read(rel), np.uint8), cv2.IMREAD_GRAYSCALE)
     h, w = img.shape
     small = cv2.resize(img, (round(w * s), round(h * s)), interpolation=cv2.INTER_AREA)
-    tmp = dst.with_suffix(".part.jpg")
-    cv2.imwrite(str(tmp), small, [cv2.IMWRITE_JPEG_QUALITY, quality])
-    tmp.replace(dst)
-    return 1
+    ok, enc = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    assert ok, rel
+    return rel, enc.tobytes()
+
+
+class Sink:
+    """Write the output either as a folder or as ONE zip file (--dst ending in .zip).
+
+    Zip mode exists for Kaggle: notebook output is size- and FILE-COUNT-limited, so 70k separate
+    JPEGs may not be saveable; one stored (uncompressed -- JPEGs don't compress further) zip is.
+    Folder mode is resumable (existing images are skipped); zip mode is not.
+    """
+
+    def __init__(self, dst):
+        self.dst = Path(dst)
+        self.zip = None
+        if self.dst.suffix == ".zip":
+            self.dst.parent.mkdir(parents=True, exist_ok=True)
+            self.zip = zipfile.ZipFile(self.dst, "w", compression=zipfile.ZIP_STORED, allowZip64=True)
+
+    def exists(self, rel):
+        return self.zip is None and (self.dst / rel).exists()
+
+    def write(self, rel, data):
+        if self.zip is not None:
+            self.zip.writestr(rel, data)
+            return
+        out = self.dst / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_name(out.name + ".part")
+        tmp.write_bytes(data)
+        tmp.replace(out)  # atomic: an interrupted run never leaves a truncated image
+
+    def close(self):
+        if self.zip is not None:
+            self.zip.close()
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", required=True, help="dataset folder or speedplusv2.zip")
-    ap.add_argument("--dst", required=True)
+    ap.add_argument("--dst", required=True, help="output folder, or a .zip file")
     ap.add_argument("--scale", type=float, default=0.5, help="0.5 -> 960x600")
     ap.add_argument("--quality", type=int, default=95)
     ap.add_argument("--workers", type=int, default=4)
     args = ap.parse_args()
-    s, dst = args.scale, Path(args.dst)
+    s = args.scale
 
-    src = Source(args.src)
+    src, sink = Source(args.src), Sink(args.dst)
     for f in META_FILES:
-        out = dst / f
-        out.parent.mkdir(parents=True, exist_ok=True)
         data = src.read(f)
         if f == "camera.json":
             data = json.dumps(scale_camera(json.loads(data), s), indent=2).encode()
-        out.write_bytes(data)
-    print(f"labels + scaled camera.json written to {dst}")
+        sink.write(f, data)
+    print(f"labels + scaled camera.json written to {args.dst}")
 
-    jobs = []
-    for d in IMAGE_DIRS:
-        (dst / d).mkdir(parents=True, exist_ok=True)
-        jobs += [(f"{d}/{fn}", str(dst / d / fn), s, args.quality) for fn in src.list_images(d)]
-    print(f"{len(jobs)} images to resize (x{s})")
+    jobs = [(f"{d}/{fn}", s, args.quality) for d in IMAGE_DIRS for fn in src.list_images(d)]
+    todo = [j for j in jobs if not sink.exists(j[0])]
+    print(f"{len(jobs)} images, {len(todo)} to resize (x{s})")
 
-    done = 0
+    nbytes = 0
     with ProcessPoolExecutor(args.workers, initializer=_init, initargs=(args.src,)) as ex:
-        for i, n in enumerate(ex.map(_resize_one, jobs, chunksize=64)):
-            done += n
+        for i, (rel, data) in enumerate(ex.map(_resize_one, todo, chunksize=64)):
+            sink.write(rel, data)  # only the main process writes -> zip file stays consistent
+            nbytes += len(data)
             if i % 2000 == 0:
-                print(f"  {i}/{len(jobs)}", flush=True)
-    print(f"done: {done} new images, total size "
-          f"{sum(p.stat().st_size for p in dst.rglob('*.jpg')) / 1e9:.2f} GB -> {dst}")
+                print(f"  {i}/{len(todo)}", flush=True)
+    sink.close()
+    print(f"done: {len(todo)} images, {nbytes / 1e9:.2f} GB of JPEG -> {args.dst}")
 
 
 if __name__ == "__main__":

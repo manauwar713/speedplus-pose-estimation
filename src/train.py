@@ -3,6 +3,7 @@
   python -m src.train --config configs/smoke_cpu.yaml            (laptop CPU smoke test)
   python -m src.train --config configs/baseline_r50.yaml         (Kaggle GPU)
   python -m src.train --config ... --resume outputs/runs/<run>/last.pt
+  python -m src.train --config configs/baseline_r50.yaml --set data.root=/kaggle/temp/sp960 train.epochs=1
 
 Each run writes outputs/runs/<name>_<timestamp>/:
   config.yaml (incl. git hash), metrics.csv (one row per epoch), last.pt, best.pt (lowest val E*_pose)
@@ -21,7 +22,7 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 
-from src.evaluate import build_model, evaluate, make_dataset
+from src.evaluate import build_model, evaluate, load_config, make_dataset
 from src.models.loss import HeatmapMSELoss
 
 try:
@@ -56,9 +57,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--resume", default=None)
+    ap.add_argument("--set", nargs="*", default=[], help="config overrides, e.g. data.root=/x train.epochs=1")
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(Path(args.config).read_text())
+    cfg = load_config(args.config, args.set)
     cfg["git_hash"] = git_hash()
     seed_everything(cfg["seed"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
