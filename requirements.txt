@@ -1,0 +1,11 @@
+# Install PyTorch separately for your platform (Kaggle/Colab already have a CUDA build):
+#   CPU laptop: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Minimum versions are loose on purpose so the cloud images' preinstalled packages are reused.
+numpy>=1.24
+scipy>=1.10
+opencv-python>=4.8
+PyYAML>=6.0
+tqdm>=4.65
+remotezip>=0.12     # only for scripts/download_subset.py
+pytest>=7.4
+# optional: mlflow (experiment tracking; train.py uses it if installed)

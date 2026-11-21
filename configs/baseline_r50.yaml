@@ -1,0 +1,39 @@
+# Stage 2 baseline (Kaggle GPU): SimpleBaseline ResNet-50, GT-box crop 256, heatmaps 64x64.
+# Before the full run: debug with train_max_samples: 10000.
+# !! data.root must point at the dataset on Kaggle. If the images are RESIZED, K in camera.json
+# !! must be scaled to match (fx, fy, cx, cy) -- not handled yet, see PROGRESS.md.
+name: baseline_r50
+seed: 0
+output_dir: outputs/runs
+
+data:
+  root: /kaggle/input/speedplus
+  train_split: train
+  val_split: validation
+  input_size: 256
+  margin: 0.2
+  train_max_samples: null
+  val_max_samples: 2000    # PnP on CPU per sample: keep periodic validation cheap; full val at the end
+  num_workers: 4
+
+model:
+  backbone: resnet50
+  pretrained: true
+  num_keypoints: 11
+
+loss:
+  sigma: 2.0
+  invisible: mask
+
+train:
+  epochs: 40
+  batch_size: 32
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  amp: true
+  val_every: 2
+  log_every: 200
+
+pnp:
+  min_conf: 0.1
+  reproj_thresh_crop_px: 8.0

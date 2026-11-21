@@ -1,0 +1,37 @@
+# Laptop CPU smoke test: does the whole loop run, does the loss fall, does E*_pose improve?
+# Tiny on purpose (ResNet-18, 128x128, 200 imgs). Numbers from this run mean nothing for the README.
+name: smoke_cpu
+seed: 0
+output_dir: outputs/runs
+
+data:
+  root: data/speedplusv2
+  train_split: train
+  val_split: validation
+  input_size: 128          # heatmaps = input/4 = 32x32
+  margin: 0.2
+  train_max_samples: 200
+  val_max_samples: 50
+  num_workers: 0           # 8 GB RAM laptop; Windows workers are slow to start anyway
+
+model:
+  backbone: resnet18
+  pretrained: true
+  num_keypoints: 11
+
+loss:
+  sigma: 2.0               # in HEATMAP pixels
+  invisible: mask          # mask | zero  (out-of-crop keypoints; your experiment)
+
+train:
+  epochs: 15
+  batch_size: 16
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  amp: false
+  val_every: 5
+  log_every: 5
+
+pnp:
+  min_conf: 0.1
+  reproj_thresh_crop_px: 8.0
